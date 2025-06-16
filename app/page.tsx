@@ -1,103 +1,34 @@
-import Image from "next/image";
-
-export default function Home() {
+// /app/page.tsx (最终的漂亮UI版本)
+'use client';
+import React, { useState, useRef } from 'react';
+type Status = 'ready' | 'uploading' | 'transcribing' | 'done' | 'error';
+interface Result { text: string; filename: string; confidence?: number; duration?: number; formattedText?: string; }
+const formatSize = (bytes: number): string => { if (bytes === 0) return '0 KB'; const mb = bytes / (1024 * 1024); return mb > 1 ? `${mb.toFixed(1)}MB` : `${(bytes / 1024).toFixed(0)}KB`; };
+const formatTime = (seconds: number): string => { const mins = Math.floor(seconds / 60); const secs = Math.floor(seconds % 60); return `${mins}:${secs.toString().padStart(2, '0')} min`; };
+const smartFormatEnglish = (text: string): string => { if (!text || text.trim().length === 0) return text; let formatted = text.replace(/([.?!])\s*(?=[A-Z"'])/g, '$1\n\n'); formatted = formatted.replace(/(\n\n)(Uh-oh|Oh, yeah|No)\./g, ' $2.'); return formatted.trim(); };
+export default function AudioTranscriberPage() {
+  const [status, setStatus] = useState<Status>('ready'); const [progress, setProgress] = useState(0); const [file, setFile] = useState<File | null>(null); const [result, setResult] = useState<Result | null>(null); const [error, setError] = useState<string>(''); const [isDragging, setIsDragging] = useState(false); const [useFormatting, setUseFormatting] = useState(true); const [copyButtonText, setCopyButtonText] = useState('Copy'); const fileInputRef = useRef<HTMLInputElement>(null); const isProcessing = status === 'uploading' || status === 'transcribing';
+  const resetState = () => { setStatus('ready'); setProgress(0); setFile(null); setResult(null); setError(''); if (fileInputRef.current) { fileInputRef.current.value = ''; } };
+  const handleFileSelect = async (selectedFile: File | null) => {
+    if (!selectedFile || isProcessing) return; if (selectedFile.size > 200 * 1024 * 1024) { setError('File is too large. Maximum size is 200MB.'); setStatus('error'); return; } const allowedExtensions = ['mp3', 'wav', 'm4a', 'mp4', 'flac', 'ogg', 'webm', 'aac']; const fileExtension = selectedFile.name.split('.').pop()?.toLowerCase(); if (!fileExtension || !allowedExtensions.includes(fileExtension)) { setError('Unsupported file format.'); setStatus('error'); return; } setFile(selectedFile); setError(''); setStatus('uploading');
+    const formData = new FormData(); formData.append('audio', selectedFile); formData.append('language', 'en');
+    try {
+      setStatus('transcribing'); const response = await fetch('/api/transcribe', { method: 'POST', body: formData }); if (!response.ok) { const errorData = await response.json(); throw new Error(errorData.error || `Server error: ${response.status}`); } const data = await response.json(); setProgress(100); const transcript = data.transcript || '(No speech content was detected.)'; setResult({ text: transcript, formattedText: smartFormatEnglish(transcript), filename: selectedFile.name, confidence: data.confidence, duration: data.duration }); setTimeout(() => { setStatus('done'); }, 300);
+    } catch (err) { setError(err instanceof Error ? err.message : 'An unknown error occurred.'); setStatus('error'); setProgress(0); }
+  };
+  const handleDrag = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); }; const handleDragIn = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); if(!isProcessing) setIsDragging(true); }; const handleDragOut = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); }; const handleDrop = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); if (e.dataTransfer.files && e.dataTransfer.files[0] && !isProcessing) { handleFileSelect(e.dataTransfer.files[0]); } }; const copyText = () => { if (!result) return; const textToCopy = useFormatting ? result.formattedText || result.text : result.text; navigator.clipboard.writeText(textToCopy).then(() => { setCopyButtonText('Copied!'); setTimeout(() => setCopyButtonText('Copy'), 2000); }); }; const downloadText = () => { if (!result) return; const textToDownload = useFormatting ? result.formattedText || result.text : result.text; const blob = new Blob([textToDownload], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${result.filename.replace(/\.[^/.]+$/, '')}_transcription.txt`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); };
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
+      <main className="container mx-auto max-w-3xl px-4 py-12">
+        <div className="text-center space-y-4 mb-10"><h1 className="text-4xl font-bold tracking-tight text-slate-900">Audio to Text Converter</h1><p className="text-lg text-slate-600">Convert MP3, WAV, M4A and other audio formats • Maximum file size: 200MB</p></div>
+        <div className="space-y-8">
+            {status === 'ready' && (<div className={`relative w-full rounded-2xl border-2 border-dashed transition-all duration-300 ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-white hover:border-slate-400'}`} onDragEnter={handleDragIn} onDragLeave={handleDragOut} onDragOver={handleDrag} onDrop={handleDrop}><input ref={fileInputRef} id="file-input" type="file" className="hidden" accept=".mp3,.wav,.m4a,.mp4,.flac,.ogg,.webm,.aac" onChange={(e) => handleFileSelect(e.target.files ? e.target.files[0] : null)} /><label htmlFor="file-input" className="flex flex-col items-center justify-center w-full h-full cursor-pointer p-12 space-y-4"><div className="rounded-full bg-slate-100 p-4"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-10 h-10 text-slate-500"><path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l-3.75 3.75M12 9.75l3.75 3.75M3 17.25V6.75A2.25 2.25 0 015.25 4.5h13.5A2.25 2.25 0 0121 6.75v10.5A2.25 2.25 0 0118.75 19.5H5.25A2.25 2.25 0 013 17.25z" /></svg></div><div className="text-center"><p className="text-lg font-semibold text-slate-700"><span className="text-blue-600">Click to upload</span> or drag and drop</p><p className="text-sm text-slate-500 mt-1">Supports MP3, WAV, M4A, FLAC, etc.</p></div></label></div>)}
+            {isProcessing && (<div className="bg-white rounded-2xl shadow-sm p-8 border border-slate-200 text-center space-y-4"><div className="text-lg font-medium text-slate-700">{status === 'uploading' ? '📤 Preparing file...' : '🧠 AI is transcribing...'}</div><div className="w-full bg-slate-200 rounded-full h-2.5"><div className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div></div>{file && <p className="text-sm text-slate-500">File: {file.name} ({formatSize(file.size)})</p>}</div>)}
+            {status === 'error' && (<div className="bg-red-50 border-l-4 border-red-400 p-6 rounded-r-lg"><div className="flex"><div className="flex-shrink-0"><svg className="h-6 w-6 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg></div><div className="ml-4"><h3 className="text-lg font-medium text-red-800">An error occurred</h3><p className="text-red-700 mt-1">{error}</p><button onClick={resetState} className="mt-4 bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition-colors text-sm font-medium">Try Again</button></div></div></div>)}
+            {status === 'done' && result && (<div className="bg-white rounded-2xl shadow-sm p-8 border border-slate-200 space-y-8"><div><h2 className="text-2xl font-bold text-slate-900 mb-2">Transcription Complete</h2><div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500"><span>File: <strong>{result.filename}</strong></span><span className="h-4 border-l border-slate-300"></span>{result.duration && <span>Duration: <strong>{formatTime(result.duration)}</strong></span>}<span className="h-4 border-l border-slate-300"></span>{result.confidence && <span>Accuracy: <strong className="text-green-600">{(result.confidence * 100).toFixed(0)}%</strong></span>}</div></div><div className="rounded-xl border border-slate-200 bg-slate-50"><div className="flex items-center justify-between p-4 border-b border-slate-200"><label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer"><input type="checkbox" checked={useFormatting} onChange={(e) => setUseFormatting(e.target.checked)} className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"/>Smart Formatting</label><div className="flex gap-2"><button onClick={copyText} className="text-sm font-medium bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md hover:bg-slate-50 transition-colors w-20">{copyButtonText}</button><button onClick={downloadText} className="text-sm font-medium bg-white border border-slate-300 text-slate-700 px-3 py-1.5 rounded-md hover:bg-slate-50 transition-colors">Download</button></div></div><div className="p-6 max-h-[450px] overflow-y-auto"><pre className="text-base text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">{useFormatting ? result.formattedText : result.text}</pre></div></div><div className="text-center pt-4"><button onClick={resetState} className="bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors shadow-sm">Process Another File</button></div></div>)}
         </div>
+        <footer className="text-center mt-12 text-sm text-slate-500"><p>🔒 Your audio files are processed securely and deleted immediately.</p><p className="mt-1">We do not store any personal data.</p></footer>
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
     </div>
   );
 }
